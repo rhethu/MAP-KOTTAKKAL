@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Smart Traffic & Ambulance System</title>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    html, body { height: 100%; margin: 0; }
+    #map { width: 100%; height: 100%; }
+    #dashboard {
+      position: absolute; top:20px; left:20px; z-index:1000;
+      background:white; padding:15px; width:300px;
+      border-radius:8px; box-shadow:0 0 10px rgba(0,0,0,0.2);
+    }
+    #dashboard input, button, select {
+      width:100%; margin-bottom:8px; padding:6px;
+      border-radius:5px; border:1px solid #ccc;
+    }
+    button {
+      background:#28a745; color:white; border:none;
+      font-weight:bold; cursor:pointer;
+    }
+    .red-btn {
+      background:#dc3545; color:white;
+    }
+  </style>
+</head>
+<body>
+<div id="dashboard">
+  <h3>🚦 Smart Traffic & Ambulance</h3>
+  <input id="searchInput" placeholder="Search any location..." />
+  <button onclick="searchPlace()">Search & Show Routes</button>
+  <hr>
+  <h4>🚨 Report Issue</h4>
+  <select id="reportType">
+    <option value="Accident">Accident</option>
+    <option value="Pothole">Pothole</option>
+    <option value="Road Block">Road Block</option>
+  </select>
+  <p>📍 Click on map to mark issue</p>
+  <button onclick="submitReport()">Submit Report</button>
+  <hr>
+  <button class="red-btn" onclick="dispatchAmbulance()">🚑 Dispatch Ambulance</button>
+  <hr>
+  <h4>📞 Emergency Call</h4>
+  <button class="red-btn" onclick="callPolice()">🚓 Call Police</button>
+  <button class="red-btn" onclick="callFireForce()">🚒 Call Fire Force</button>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+const map = L.map('map').setView([11.0030, 76.0015], 13);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{ attribution: '© OpenStreetMap contributors' }).addTo(map);
+
+const currentLocation = [11.0030, 76.0015];
+L.marker(currentLocation).addTo(map).bindPopup("📍 Current Location");
+
+const hospitals = [
+  { name:"Almas Hospital", lat:10.99988, lng:75.99082 },
+  { name:"Aster MIMS Hospital", lat: 10.99601, lng:75.99420 },
+  { name:"Neha Hospital", lat:10.99973, lng:75.99607 },
+  { name:"Community Health (MIMS)", lat:11.0545, lng:76.0018 },
+  { name:"Taluk Hospital Kottakkal", lat: 11.00085, lng: 76.00812 }
+];
+hospitals.forEach(h=> L.marker([h.lat,h.lng]).addTo(map).bindPopup("🏥 "+h.name));
+
+let clickedLatLng=null;
+let reportMarkers=[], routeLayers=[];
+
+map.on('click', e => {
+  clickedLatLng = e.latlng;
+  alert("📍 Selected: "+clickedLatLng.lat.toFixed(5)+", "+clickedLatLng.lng.toFixed(5));
+});
+
+function clearRoutes(){
+  routeLayers.forEach(r=>map.removeLayer(r));
+  routeLayers=[];
+}
+
+async function searchPlace(){
+  const q = document.getElementById('searchInput').value;
+  if(!q) return alert("Enter location");
+  const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}`);
+  const d = await r.json();
+  if (!d[0]) return alert("Not found");
+  const lat=parseFloat(d[0].lat), lng=parseFloat(d[0].lon);
+  const dest=[lat,lng];
+  L.marker(dest).addTo(map).bindPopup("📍 "+d[0].display_name).openPopup();
+  map.setView(dest,14);
+  drawMultipleRoutes(currentLocation,dest);
+}
+
+function generateWaypoints(start,end){
+  const midLat=(start[0]+end[0])/2, midLng=(start[1]+end[1])/2;
+  return [
+    [midLat+0.003, midLng],
+    [midLat-0.002, midLng+0.008],
+    [midLat-0.002, midLng-0.008]
+  ];
+}
+
+async function drawMultipleRoutes(start,end){
+  clearRoutes();
+  const wps = generateWaypoints(start,end);
+  const cols = ['green','orange','red'];
+  for(let i=0;i<3;i++){
+    const url = `https://router.project-osrm.org/route/v1/driving/${start[1]},${start[0]};${wps[i][1]},${wps[i][0]};${end[1]},${end[0]}?overview=full&geometries=geojson`;
+    try{
+      const res = await fetch(url), json = await res.json();
+      if(json.routes?.[0]){
+        const coords=json.routes[0].geometry.coordinates.map(c=>[c[1],c[0]]);
+        const pl=L.polyline(coords,{color:cols[i],weight:6,opacity:0.9})
+          .addTo(map)
+          .bindPopup(`🛣️ ${cols[i].toUpperCase()} route<br>Dist: ${(json.routes[0].distance/1000).toFixed(2)}km<br>Time: ${(json.routes[0].duration/60).toFixed(1)}min`);
+        routeLayers.push(pl);
+      }
+    }catch(e){ console.error(e); }
+  }
+}
+
+function submitReport(){
+  if(!clickedLatLng) return alert("Click map first");
+  const type=document.getElementById('reportType').value;
+  const icon = type==='Accident' ? '🚧' : (type==='Pothole' ? '🕳️' : '⛔');
+  const popup=`${icon} ${type}<br><button onclick="deleteMarker(this)">🗑️ Delete</button>`;
+  const m=L.marker(clickedLatLng).addTo(map).bindPopup(popup).openPopup();
+  reportMarkers.push({marker:m,type:type});
+}
+
+function deleteMarker(btn){
+  reportMarkers.forEach((obj,i)=>{
+    if(obj.marker.getPopup().getContent().includes(btn.outerHTML)){
+      map.removeLayer(obj.marker);
+      reportMarkers.splice(i,1);
+    }
+  });
+}
+
+async function dispatchAmbulance(){
+  const lastReport = reportMarkers[reportMarkers.length - 1];
+  if (!lastReport || lastReport.type !== "Accident") {
+    alert("❌ Ambulance dispatch only available for accident reports.");
+    return;
+  }
+  const lastAccident = lastReport.marker.getLatLng();
+
+  let best=null, shortest=Infinity, routeCoords=[];
+  for(const h of hospitals){
+    const url=`https://router.project-osrm.org/route/v1/driving/${currentLocation[1]},${currentLocation[0]};${lastAccident.lng},${lastAccident.lat};${h.lng},${h.lat}?overview=full&geometries=geojson`;
+    try{
+      const res = await fetch(url), data = await res.json();
+      const rt = data.routes?.[0];
+      if(rt && rt.distance < shortest){
+        shortest = rt.distance;
+        best = h;
+        routeCoords = rt.geometry.coordinates.map(c=>[c[1],c[0]]);
+      }
+    }catch(e){console.error(e);}
+  }
+  if(!best) return alert("🚫 No hospital route found.");
+  animateAmbulance(routeCoords);
+}
+
+function animateAmbulance(path){
+  let i=0;
+  const icon=L.divIcon({html:'🚑',className:'',iconSize:[24,24]});
+  const marker=L.marker(path[0],{icon}).addTo(map);
+  const line=L.polyline(path,{color:'blue',weight:6,opacity:0.9}).addTo(map);
+
+  const interval=setInterval(()=>{
+    i++;
+    if(i>=path.length){
+      clearInterval(interval);
+      map.removeLayer(marker);
+      map.removeLayer(line);
+      alert("🚑 Ambulance reached hospital.");
+    }else marker.setLatLng(path[i]);
+  },200);
+}
+
+// Emergency Calls
+function callPolice() {
+  alert("📞 Calling Police Helpline: 100");
+}
+function callFireForce() {
+  alert("📞 Calling Fire Force: 101");
+}
+</script>
+</body>
+</html>

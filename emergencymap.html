@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Smart Emergency Service Map</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+
+  <style>
+    body, html { margin: 0; padding: 0; height: 100%; }
+    #map { height: 100%; width: 100%; }
+    #dashboard {
+      position: absolute;
+      top: 20px; left: 20px;
+      z-index: 1000;
+      background: white;
+      padding: 15px;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.2);
+      width: 280px;
+    }
+    #dashboard input, #dashboard button, #dashboard select {
+      width: 100%;
+      margin-bottom: 10px;
+      padding: 6px;
+      border-radius: 5px;
+      border: 1px solid #ccc;
+    }
+    #dashboard button {
+      font-weight: bold;
+      border: none;
+    }
+    #sendAlertBtn {
+      background-color: red;
+      color: white;
+    }
+    #clearAlertBtn {
+      background-color: #444;
+      color: white;
+    }
+    #hospital-list div {
+      padding: 5px;
+      margin-bottom: 5px;
+      background: #f1f1f1;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    #hospital-list div:hover {
+      background: #ddd;
+    }
+    #alert-controls {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+
+<div id="dashboard">
+  <h3>🆘 Emergency Map</h3>
+
+  <label>🚨 Select Service</label>
+  <select id="serviceType">
+    <option value="ambulance">🚑 Ambulance</option>
+    <option value="fire">🚒 Fire Force</option>
+    <option value="police">🚓 Police</option>
+  </select>
+
+  <input type="text" id="searchInput" placeholder="Search hospital or location" />
+  <button onclick="searchPlace()">Search & Route</button>
+
+  <div id="hospital-list">
+    <h4>🏥 Quick Hospitals</h4>
+    <div onclick="quickSelectHospital('Community Health Centre, Kottakkal')">Community Health Centre</div>
+    <div onclick="quickSelectHospital('HMS Hospital')">HMS Hospital</div>
+    <div onclick="quickSelectHospital('Neha Hospital')">Neha Hospital</div>
+    <div onclick="quickSelectHospital('Almas Hospital')">Almas Hospital</div>
+  </div>
+
+  <!-- Alert Controls Only For Ambulance and Fire -->
+  <div id="alert-controls">
+    <h4>📣 Alert Controls</h4>
+    <button id="sendAlertBtn" onclick="sendAlert()">Send Alert</button>
+    <button id="clearAlertBtn" onclick="clearAlert()">Clear Alert</button>
+  </div>
+</div>
+
+<div id="map"></div>
+
+<!-- Libraries -->
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.min.js"></script>
+
+<script>
+  const map = L.map('map').setView([11.0030, 76.0015], 14);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors'
+  }).addTo(map);
+
+  let routeControl = null;
+
+  const icons = {
+    ambulance: "🚑",
+    fire: "🚒",
+    police: "🚓"
+  };
+
+  document.getElementById("serviceType").addEventListener("change", updateUIBasedOnService);
+
+  function updateUIBasedOnService() {
+    const service = document.getElementById("serviceType").value;
+
+    // Show hospitals only for ambulance
+    document.getElementById("hospital-list").style.display =
+      (service === "ambulance") ? "block" : "none";
+
+    // Show alert buttons only for ambulance and fire
+    document.getElementById("alert-controls").style.display =
+      (service === "ambulance" || service === "fire") ? "block" : "none";
+  }
+
+  updateUIBasedOnService(); // Run on load
+
+  function quickSelectHospital(name) {
+    document.getElementById('searchInput').value = name;
+    searchPlace();
+  }
+
+  function searchPlace() {
+    const query = document.getElementById('searchInput').value;
+    if (!query) return alert("Enter a hospital or location name");
+
+    fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.length === 0) {
+          alert("❌ Place not found");
+          return;
+        }
+
+        const destLat = parseFloat(data[0].lat);
+        const destLng = parseFloat(data[0].lon);
+
+        if (routeControl) map.removeControl(routeControl);
+
+        const service = document.getElementById("serviceType").value;
+
+        routeControl = L.Routing.control({
+          waypoints: [
+            L.latLng(11.0030, 76.0015),
+            L.latLng(destLat, destLng)
+          ],
+          createMarker: function(i, waypoint, n) {
+            return L.marker(waypoint.latLng, {
+              icon: L.divIcon({
+                html: (i === 0) ? icons[service] : "🏁",
+                className: '',
+                iconSize: [24, 24]
+              })
+            });
+          },
+          routeWhileDragging: false
+        }).addTo(map);
+      })
+      .catch(err => alert("Routing error"));
+  }
+
+  function sendAlert() {
+    const service = document.getElementById("serviceType").value;
+    const timestamp = Date.now().toString();
+    localStorage.setItem(`${service}Alert`, timestamp);
+    alert(`✅ Alert sent for ${service.toUpperCase()}`);
+  }
+
+  function clearAlert() {
+    const service = document.getElementById("serviceType").value;
+    localStorage.removeItem(`${service}Alert`);
+    alert(`✅ Alert cleared for ${service.toUpperCase()}`);
+  }
+</script>
+
+</body>
+</html>

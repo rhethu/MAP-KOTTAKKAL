@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Service Route Map with Service Centres</title>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    html,body{height:100%;margin:0}
+    #map{width:100%;height:100%}
+    #dashboard{position:absolute;top:20px;left:20px;z-index:1000;
+      background:white;padding:15px;width:300px;border-radius:8px;
+      box-shadow:0 0 10px rgba(0,0,0,0.2)}
+    input,button{width:100%;margin-bottom:8px;padding:8px;
+      border-radius:5px;border:1px solid #ccc}
+    button{background:#007bff;color:white;font-weight:bold;border:none;cursor:pointer}
+    button.green-btn{background:#28a745}
+  </style>
+</head>
+<body>
+<div id="dashboard">
+  <h3>🛠️ Service Route Finder</h3>
+  <input id="serviceCenterSearch" placeholder="Search service centre (e.g. restaurant)" />
+  <button onclick="searchServiceCenter()">Select Service Centre</button>
+  <p>Or click on map to place service centre</p>
+  <input id="customerSearch" placeholder="Search customer/delivery location" />
+  <button onclick="searchCustomer()">Select Customer Location</button>
+  <button class="green-btn" onclick="showBestRoute()">Show Best Route</button>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.min.js"></script>
+<script>
+const map = L.map('map').setView([11.003,76.0015],14);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{ attribution:'© OpenStreetMap contributors' }).addTo(map);
+
+const serviceMarkers = [];
+let serviceCenter = null;
+let customerLoc = null;
+let routingControl = null;
+
+map.on('click', e => {
+  if (!serviceCenter) {
+    serviceCenter = e.latlng;
+    L.marker(serviceCenter).addTo(map).bindPopup("🔧 Service Centre (clicked)").openPopup();
+  }
+});
+
+async function geocode(q) {
+  const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}`);
+  const data = await res.json();
+  return data[0] ? [parseFloat(data[0].lat), parseFloat(data[0].lon)] : null;
+}
+
+async function searchServiceCenter() {
+  const q = document.getElementById('serviceCenterSearch').value;
+  const loc = await geocode(q);
+  if (!loc) return alert("Service centre not found");
+  serviceCenter = L.latLng(loc[0], loc[1]);
+  L.marker(serviceCenter).addTo(map).bindPopup("🔧 Service Point").openPopup();
+  map.setView(serviceCenter,14);
+}
+
+async function searchCustomer() {
+  const q = document.getElementById('customerSearch').value;
+  const loc = await geocode(q);
+  if (!loc) return alert("Customer location not found");
+  customerLoc = L.latLng(loc[0],loc[1]);
+  L.marker(customerLoc).addTo(map).bindPopup("🏠 Customer Location").openPopup();
+  map.setView(customerLoc,14);
+}
+
+function showBestRoute() {
+  if (!serviceCenter || !customerLoc) {
+    return alert("Please select both service centre and customer location");
+  }
+  if (routingControl) map.removeControl(routingControl);
+  routingControl = L.Routing.control({
+    waypoints:[serviceCenter, customerLoc],
+    routeWhileDragging:false,
+    createMarker:(i,wp,n)=>L.marker(wp.latLng,{icon:L.divIcon({html:i===0?"🔧":"📦",iconSize:[24,24]})}),
+    lineOptions:{styles:[{color:'blue',opacity:0.8,weight:6}]}
+  }).addTo(map);
+  map.setView(serviceCenter,13);
+}
+</script>
+</body>
+</html>
